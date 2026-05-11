@@ -20,12 +20,27 @@ service cloud.firestore {
     }
 
     function isValidAnalysis(data) {
-      return data.keys().hasAll(['id', 'userId', 'name', 'url', 'score', 'timestamp']) &&
+      let editingGuide = data.get('editingGuide', null);
+      return data.keys().hasAll(['id', 'userId', 'name', 'url', 'score', 'keywords', 'trends', 'commercialPotential', 'suggestions', 'timestamp']) &&
              data.id is string &&
              data.userId == request.auth.uid &&
-             data.name is string && data.name.size() <= 256 &&
-             data.url is string && data.url.size() <= 2048 &&
+             data.name is string && data.name.size() <= 1024 &&
+             data.url is string && data.url.size() <= 2000000 &&
+             (data.get('originalUrl', null) == null || data.originalUrl is string) &&
              data.score is number && data.score >= 0 && data.score <= 100 &&
+             data.keywords is list && (data.keywords.size() == 0 || data.keywords[0] is string) &&
+             data.trends is string &&
+             data.commercialPotential is string &&
+             data.suggestions is list && (data.suggestions.size() == 0 || data.suggestions[0] is string) &&
+             (editingGuide == null || (
+               editingGuide.exposure is string &&
+               editingGuide.contrast is string &&
+               editingGuide.saturation is string &&
+               editingGuide.highlights is string &&
+               editingGuide.shadows is string &&
+               editingGuide.colorTemp is string &&
+               editingGuide.cropSuggestion is string
+             )) &&
              data.timestamp is number;
     }
 
@@ -34,11 +49,13 @@ service cloud.firestore {
       allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
       
       allow create: if isSignedIn() && 
+                    request.auth.token.email_verified == true &&
                     isValidAnalysis(request.resource.data) &&
                     isValidId(analysisId) &&
                     request.resource.data.id == analysisId;
 
       allow update: if isSignedIn() && 
+                    request.auth.token.email_verified == true &&
                     isOwner(resource.data.userId) &&
                     isValidAnalysis(request.resource.data) &&
                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['url', 'score', 'keywords', 'trends', 'commercialPotential', 'suggestions', 'editingGuide', 'timestamp']);

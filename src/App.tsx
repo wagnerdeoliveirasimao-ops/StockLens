@@ -550,7 +550,8 @@ export default function App() {
                   shadows: { type: Type.STRING },
                   colorTemp: { type: Type.STRING },
                   cropSuggestion: { type: Type.STRING },
-                }
+                },
+                required: ["exposure", "contrast", "saturation", "highlights", "shadows", "colorTemp", "cropSuggestion"]
               }
             },
             required: ["score", "keywords", "trends", "commercialPotential", "suggestions", "editingGuide"]
