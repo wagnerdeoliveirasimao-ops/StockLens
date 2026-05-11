@@ -1,0 +1,53 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidAnalysis(data) {
+      return data.keys().hasAll(['id', 'userId', 'name', 'url', 'score', 'timestamp']) &&
+             data.id is string &&
+             data.userId == request.auth.uid &&
+             data.name is string && data.name.size() <= 256 &&
+             data.url is string && data.url.size() <= 2048 &&
+             data.score is number && data.score >= 0 && data.score <= 100 &&
+             data.timestamp is number;
+    }
+
+    match /analyses/{analysisId} {
+      allow get: if isSignedIn() && isOwner(resource.data.userId);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      
+      allow create: if isSignedIn() && 
+                    isValidAnalysis(request.resource.data) &&
+                    isValidId(analysisId) &&
+                    request.resource.data.id == analysisId;
+
+      allow update: if isSignedIn() && 
+                    isOwner(resource.data.userId) &&
+                    isValidAnalysis(request.resource.data) &&
+                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['url', 'score', 'keywords', 'trends', 'commercialPotential', 'suggestions', 'editingGuide', 'timestamp']);
+
+      allow delete: if isSignedIn() && isOwner(resource.data.userId);
+    }
+
+    match /user_settings/{userId} {
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
+    }
+  }
+}

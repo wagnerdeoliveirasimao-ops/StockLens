@@ -1,0 +1,6 @@
+{
+  "name": "StockLens AI - Analisador de Potencial de Vendas",
+  "description": "Ferramenta de IA para analisar o potencial de venda de fotos em bancos de imagens como Shutterstock e Getty Images, fornecendo insights de mercado, tendências e palavras-chave.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
