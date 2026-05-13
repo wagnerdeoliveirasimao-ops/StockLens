@@ -57,26 +57,46 @@ export function useAuth() {
     // Processa redirect pendente (volta do Google OAuth)
     getRedirectResult(auth)
       .then((result) => {
-        if (result?.user) console.log('[Auth] Redirect OK:', result.user.email);
+        if (result?.user) {
+          setAuthError(`✅ Redirect OK: ${result.user.email}`);
+        } else {
+          setAuthError(`ℹ️ getRedirectResult: null (nenhum redirect pendente)`);
+        }
       })
       .catch((err: { code?: string; message?: string }) => {
-        console.error('[Auth] Redirect error:', err.code, err.message);
-        if (err.code === 'auth/unauthorized-domain') {
-          setAuthError(
-            `Domínio não autorizado: adicione "${window.location.hostname}" em ` +
-            `Authentication → Settings → Authorized domains no Firebase Console.`
-          );
-        }
+        setAuthError(`❌ Erro: ${err.code} — ${err.message}`);
       })
       .finally(() => {
         redirectDone = true;
         finalize();
       });
 
+    // Pageshow: captura restauração de bfcache do iOS
+    const handlePageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) {
+        setAuthError('🔄 Página restaurada do cache (bfcache) — verificando auth...');
+        getRedirectResult(auth)
+          .then((result) => {
+            if (result?.user) {
+              setUser(result.user);
+              setAuthError(null);
+            } else {
+              setAuthError('⚠️ bfcache: getRedirectResult retornou null');
+            }
+          })
+          .catch((err: { code?: string }) => {
+            setAuthError(`❌ bfcache erro: ${err.code}`);
+          });
+      }
+    };
+    window.addEventListener('pageshow', handlePageShow);
     return () => {
       clearTimeout(safetyTimer);
       unsubscribe();
+      window.removeEventListener('pageshow', handlePageShow);
     };
+
+    // cleanup movido para dentro do handler do pageshow acima
   }, []);
 
   const login = () => {
