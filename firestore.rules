@@ -25,8 +25,9 @@ service cloud.firestore {
              data.id is string &&
              data.userId == request.auth.uid &&
              data.name is string && data.name.size() <= 1024 &&
-             data.url is string && data.url.size() <= 2000000 &&
+             data.url is string && data.url.size() <= 2048 &&
              (data.get('originalUrl', null) == null || data.originalUrl is string) &&
+             (data.get('storagePath', null) == null || data.storagePath is string) &&
              data.score is number && data.score >= 0 && data.score <= 100 &&
              data.keywords is list && (data.keywords.size() == 0 || data.keywords[0] is string) &&
              data.trends is string &&
@@ -41,6 +42,8 @@ service cloud.firestore {
                editingGuide.colorTemp is string &&
                editingGuide.cropSuggestion is string
              )) &&
+             (data.get('imageMetadata', null) == null || data.imageMetadata is map) &&
+             (data.get('compliance', null) == null || data.compliance is map) &&
              data.timestamp is number;
     }
 

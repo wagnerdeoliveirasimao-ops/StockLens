@@ -1,0 +1,20 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Bloqueia tudo por padrão
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    // Arquivos de análise: cada usuário acessa só a própria pasta
+    match /users/{userId}/analyses/{analysisId}/{fileName} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null
+                    && request.auth.uid == userId
+                    && request.auth.token.email_verified == true
+                    && request.resource.size < 10 * 1024 * 1024  // máx 10MB
+                    && request.resource.contentType.matches('image/.*');
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}

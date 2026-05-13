@@ -3,93 +3,347 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import cors from "cors";
 
+// ── Types ──────────────────────────────────────────────────────────────────────
+
+interface ShutterstockConfig { apiKey: string; apiSecret: string; contributorId: string; }
+interface GettyConfig        { apiKey: string; apiSecret: string; }
+interface AdobeConfig        { apiKey: string; apiSecret: string; }
+
+interface DistributionMetadata { title: string; keywords: string[]; description?: string; }
+
+interface PlatformResult {
+  platform:      string;
+  status:        'success' | 'error';
+  message:       string;
+  submissionId?: string;
+  portalUrl?:    string;
+  timestamp:     string;
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+async function downloadImageBuffer(url: string): Promise<{ buffer: Buffer; contentType: string }> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status} ao baixar imagem`);
+  const contentType = res.headers.get('content-type') ?? 'image/jpeg';
+  return { buffer: Buffer.from(await res.arrayBuffer()), contentType };
+}
+
+// ── Shutterstock ───────────────────────────────────────────────────────────────
+//
+// Flow:
+//   1. Client Credentials OAuth2 → access_token
+//   2. POST /v2/images/uploads   → { upload_id, upload_url }
+//   3. PUT  upload_url           → binary upload
+//   4. POST /v2/images           → submit for editorial review
+
+async function distributeToShutterstock(
+  imageBuffer: Buffer,
+  imageName:   string,
+  contentType: string,
+  metadata:    DistributionMetadata,
+  config:      ShutterstockConfig,
+): Promise<PlatformResult> {
+  const PORTAL = 'https://submit.shutterstock.com';
+  const ts     = new Date().toISOString();
+  const log    = (msg: string) => console.log(`[Shutterstock] ${msg}`);
+
+  // 1 — OAuth2 access token
+  const tokenRes = await fetch('https://api.shutterstock.com/v2/oauth/access_token', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body:    new URLSearchParams({
+      grant_type:    'client_credentials',
+      client_id:     config.apiKey,
+      client_secret: config.apiSecret,
+    }),
+  });
+
+  if (!tokenRes.ok) {
+    const body = await tokenRes.text().catch(() => '');
+    log(`Auth failed ${tokenRes.status}: ${body.slice(0, 200)}`);
+    return {
+      platform: 'Shutterstock', status: 'error', timestamp: ts, portalUrl: PORTAL,
+      message: tokenRes.status === 401
+        ? 'Credenciais inválidas. Verifique o Consumer Key e Secret nas Configurações.'
+        : `Falha na autenticação (HTTP ${tokenRes.status}). Tente novamente.`,
+    };
+  }
+
+  const { access_token: token } = await tokenRes.json() as { access_token: string };
+  log('Token obtido.');
+
+  // 2 — Initialize upload
+  const initRes = await fetch('https://api.shutterstock.com/v2/images/uploads', {
+    method:  'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ filename: imageName }),
+  });
+
+  if (!initRes.ok) {
+    const body = await initRes.text().catch(() => '');
+    log(`Init upload failed ${initRes.status}: ${body.slice(0, 200)}`);
+    return {
+      platform: 'Shutterstock', status: 'error', timestamp: ts, portalUrl: PORTAL,
+      message: `Erro ao iniciar upload (HTTP ${initRes.status}). Sua conta pode não ter acesso de contribuidor ativo.`,
+    };
+  }
+
+  const { upload_id, upload_url } = await initRes.json() as { upload_id: string; upload_url: string };
+  log(`Upload iniciado: id=${upload_id}`);
+
+  // 3 — Upload binary to pre-signed URL
+  const putRes = await fetch(upload_url, {
+    method:  'PUT',
+    body:    imageBuffer,
+    headers: { 'Content-Type': contentType },
+  });
+
+  if (!putRes.ok) {
+    log(`File PUT failed ${putRes.status}`);
+    return {
+      platform: 'Shutterstock', status: 'error', timestamp: ts, portalUrl: PORTAL,
+      message: `Erro ao enviar arquivo (HTTP ${putRes.status}).`,
+    };
+  }
+
+  log('Arquivo enviado.');
+
+  // 4 — Submit image for review
+  const submitRes = await fetch('https://api.shutterstock.com/v2/images', {
+    method:  'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body:    JSON.stringify({
+      upload_id,
+      description: metadata.title.slice(0, 200),
+      keywords:    metadata.keywords.slice(0, 50),   // Shutterstock max 50
+      editorial:   false,
+      is_illustration: false,
+    }),
+  });
+
+  if (!submitRes.ok) {
+    const body = await submitRes.text().catch(() => '');
+    log(`Submit failed ${submitRes.status}: ${body.slice(0, 200)}`);
+    return {
+      platform: 'Shutterstock', status: 'error', timestamp: ts, portalUrl: PORTAL,
+      message: `Arquivo enviado, mas falhou ao registrar para revisão (HTTP ${submitRes.status}).`,
+    };
+  }
+
+  const submitData = await submitRes.json() as { id?: string };
+  log(`Submitted OK, id=${submitData.id}`);
+
+  return {
+    platform:     'Shutterstock',
+    status:       'success',
+    timestamp:    ts,
+    message:      'Enviada com sucesso e aguardando revisão editorial.',
+    submissionId: submitData.id,
+    portalUrl:    PORTAL,
+  };
+}
+
+// ── Adobe Stock ────────────────────────────────────────────────────────────────
+//
+// Flow:
+//   1. Adobe IMS client_credentials → access_token
+//   2. POST stock.adobe.io/v1/content/upload  (multipart)
+
+async function distributeToAdobe(
+  imageBuffer: Buffer,
+  imageName:   string,
+  contentType: string,
+  metadata:    DistributionMetadata,
+  config:      AdobeConfig,
+): Promise<PlatformResult> {
+  const PORTAL = 'https://contributor.stock.adobe.com';
+  const ts     = new Date().toISOString();
+  const log    = (msg: string) => console.log(`[Adobe Stock] ${msg}`);
+
+  // 1 — Adobe IMS token
+  const tokenRes = await fetch('https://ims-na1.adobelogin.com/ims/token/v3', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body:    new URLSearchParams({
+      grant_type:    'client_credentials',
+      client_id:     config.apiKey,
+      client_secret: config.apiSecret,
+      scope:         'openid,AdobeID,stock_contributor',
+    }),
+  });
+
+  if (!tokenRes.ok) {
+    const body = await tokenRes.text().catch(() => '');
+    log(`Auth failed ${tokenRes.status}: ${body.slice(0, 200)}`);
+    return {
+      platform: 'Adobe Stock', status: 'error', timestamp: ts, portalUrl: PORTAL,
+      message: tokenRes.status === 400 || tokenRes.status === 401
+        ? 'Credenciais Adobe inválidas ou sem permissão de contribuidor. Verifique nas Configurações.'
+        : `Falha na autenticação Adobe IMS (HTTP ${tokenRes.status}).`,
+    };
+  }
+
+  const { access_token: token } = await tokenRes.json() as { access_token: string };
+  log('Token obtido.');
+
+  // 2 — Upload via multipart form
+  const form = new FormData();
+  form.append('file',     new Blob([imageBuffer], { type: contentType }), imageName);
+  form.append('title',    metadata.title.slice(0, 200));
+  form.append('keywords', metadata.keywords.slice(0, 49).join(','));   // Adobe max 49
+
+  const uploadRes = await fetch('https://stock.adobe.io/v1/content/upload', {
+    method:  'POST',
+    headers: { Authorization: `Bearer ${token}`, 'x-api-key': config.apiKey },
+    body:    form,
+  });
+
+  if (!uploadRes.ok) {
+    const body = await uploadRes.text().catch(() => '');
+    log(`Upload failed ${uploadRes.status}: ${body.slice(0, 200)}`);
+    return {
+      platform: 'Adobe Stock', status: 'error', timestamp: ts, portalUrl: PORTAL,
+      message: `Erro ao enviar para Adobe Stock (HTTP ${uploadRes.status}). Verifique se a conta tem acesso de contribuidor ativo.`,
+    };
+  }
+
+  const uploadData = await uploadRes.json() as { content_id?: string };
+  log(`Submitted OK, content_id=${uploadData.content_id}`);
+
+  return {
+    platform:     'Adobe Stock',
+    status:       'success',
+    timestamp:    ts,
+    message:      'Enviada com sucesso e aguardando revisão.',
+    submissionId: uploadData.content_id,
+    portalUrl:    PORTAL,
+  };
+}
+
+// ── Getty Images ───────────────────────────────────────────────────────────────
+//
+// Getty Images does NOT offer a public contributor upload API.
+// Submissions are done via web portal or SFTP.
+// The Getty API (api.gettyimages.com) is for content licensing only (buyers).
+
+async function distributeToGetty(_config: Partial<GettyConfig>): Promise<PlatformResult> {
+  console.log('[Getty Images] Redirecionando para portal — sem API pública de upload de contribuidor.');
+  return {
+    platform:  'Getty Images',
+    status:    'error',
+    timestamp: new Date().toISOString(),
+    portalUrl: 'https://contributor.gettyimages.com',
+    message:
+      'Getty Images não oferece API pública para upload de contribuições. ' +
+      'Envie pelo portal web (contributor.gettyimages.com) ou via SFTP (sftp.gettyimages.com).',
+  };
+}
+
+// ── Server ─────────────────────────────────────────────────────────────────────
+
 async function startServer() {
-  const app = express();
+  const app  = express();
   const PORT = 3000;
 
   app.use(cors());
   app.use(express.json({ limit: '50mb' }));
 
-  // API Route for Stock Distribution
-  app.post("/api/distribute", async (req, res) => {
-    const { imageId, platforms, metadata, config } = req.body;
-    
-    console.log(`[DISTRIBUTION] Iniciando envio da imagem ${imageId}`);
-    console.log(`[METADATA] Titulo: ${metadata.title}, Tags: ${metadata.keywords.length}`);
-    
-    const results = [];
+  // ── POST /api/distribute ──────────────────────────────────────────────────────
+  app.post('/api/distribute', async (req, res) => {
+    const { imageId, imageUrl, imageName, platforms, metadata, config } = req.body as {
+      imageId:   string;
+      imageUrl:  string;
+      imageName: string;
+      platforms: string[];
+      metadata:  DistributionMetadata;
+      config: {
+        shutterstock?: ShutterstockConfig;
+        getty?:        GettyConfig;
+        adobe?:        AdobeConfig;
+      };
+    };
+
+    if (!imageUrl) {
+      res.status(400).json({ success: false, message: 'imageUrl é obrigatório.' });
+      return;
+    }
+
+    console.log(`[DISTRIBUTE] imageId=${imageId} → ${platforms.join(', ')}`);
+
+    // Download image once, reuse for all platforms
+    let imageBuffer: Buffer;
+    let contentType: string;
+
+    try {
+      ({ buffer: imageBuffer, contentType } = await downloadImageBuffer(imageUrl));
+      console.log(`[DISTRIBUTE] Imagem baixada: ${imageBuffer.byteLength} bytes, type=${contentType}`);
+    } catch (err) {
+      console.error('[DISTRIBUTE] Falha ao baixar imagem:', err);
+      res.status(500).json({
+        success: false,
+        message: 'Não foi possível baixar a imagem para distribuição.',
+        details: [],
+      });
+      return;
+    }
+
+    const safeImageName = (imageName ?? `image_${imageId}`).replace(/[^a-z0-9._-]/gi, '_');
+    const results: PlatformResult[] = [];
 
     for (const platform of platforms) {
       try {
-        let platConfig = null;
-        let endpoint = "";
-
         if (platform === 'Shutterstock') {
-          platConfig = config.shutterstock;
-          endpoint = "https://api.shutterstock.com/v2/images/uploads";
+          if (!config.shutterstock?.apiKey) throw new Error('Configuração do Shutterstock ausente.');
+          results.push(await distributeToShutterstock(imageBuffer, safeImageName, contentType, metadata, config.shutterstock));
+
         } else if (platform === 'Getty Images') {
-          platConfig = config.getty;
-          endpoint = "https://api.gettyimages.com/v3/uploads";
+          results.push(await distributeToGetty(config.getty ?? {}));
+
         } else if (platform === 'Adobe Stock') {
-          platConfig = config.adobe;
-          endpoint = "https://stock.adobe.io/v1/content/upload";
+          if (!config.adobe?.apiKey) throw new Error('Configuração do Adobe Stock ausente.');
+          results.push(await distributeToAdobe(imageBuffer, safeImageName, contentType, metadata, config.adobe));
+
+        } else {
+          results.push({
+            platform, status: 'error', timestamp: new Date().toISOString(),
+            message: `Plataforma desconhecida: ${platform}.`,
+          });
         }
-
-        if (!platConfig?.apiKey) {
-          throw new Error(`Configuração ausente para ${platform}`);
-        }
-
-        console.log(`[PUSH] Enviando para ${platform} (${endpoint})`);
-        
-        // Simulação de chamada real usando as chaves reais se existissem
-        // Exemplo: await fetch(endpoint, { method: 'POST', headers: { ...platConfig }, body: ... })
-        await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 1000));
-
+      } catch (err) {
+        console.error(`[${platform}] Erro inesperado:`, err);
         results.push({
-          platform,
-          status: "success",
-          message: "Upload concluído",
-          timestamp: new Date().toISOString()
-        });
-      } catch (error) {
-        console.error(`[FAIL] ${platform}:`, error);
-        results.push({
-          platform,
-          status: "error",
-          message: error instanceof Error ? error.message : "Falha na conexão",
-          timestamp: new Date().toISOString()
+          platform, status: 'error', timestamp: new Date().toISOString(),
+          message: err instanceof Error ? err.message : 'Erro inesperado.',
         });
       }
     }
 
-    const allSuccess = results.every(r => r.status === "success");
+    const allSuccess = results.every(r => r.status === 'success');
+    const anySuccess = results.some(r => r.status === 'success');
 
-    res.json({ 
-      success: allSuccess, 
-      message: allSuccess 
-        ? "Distribuição concluída com sucesso em todas as plataformas!" 
-        : "Distribuição concluída com alguns alertas.",
-      details: results
+    res.json({
+      success: allSuccess,
+      message: allSuccess
+        ? 'Distribuição concluída com sucesso em todas as plataformas!'
+        : anySuccess
+          ? 'Distribuição parcialmente concluída.'
+          : 'Nenhuma plataforma aceitou o envio.',
+      details: results,
     });
   });
 
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
+  // ── Vite / static ─────────────────────────────────────────────────────────────
+  if (process.env.NODE_ENV !== 'production') {
+    const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'spa' });
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    app.get('*', (_req, response) => response.sendFile(path.join(distPath, 'index.html')));
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  app.listen(PORT, '0.0.0.0', () => console.log(`Server running on http://localhost:${PORT}`));
 }
 
 startServer();

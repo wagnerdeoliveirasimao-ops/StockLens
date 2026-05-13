@@ -6,9 +6,13 @@
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build",
+    "start": "NODE_ENV=production node --import tsx/esm server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

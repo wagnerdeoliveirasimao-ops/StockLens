@@ -1,1 +1,13 @@
 @import "tailwindcss";
+
+/* Safe area para iPhone com notch / Dynamic Island */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .pb-safe {
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+}
+
+/* Touch feedback suave */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
