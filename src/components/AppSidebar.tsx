@@ -1,5 +1,5 @@
 import { ComponentType } from 'react';
-import { BrainCircuit, LayoutDashboard, Clock, LineChart, Settings, LogOut, User } from 'lucide-react';
+import { BrainCircuit, LayoutDashboard, LineChart, Settings, LogOut, User } from 'lucide-react';
 import { User as FirebaseUser } from 'firebase/auth';
 import { View } from '../types';
 
@@ -12,7 +12,6 @@ interface Props {
 
 const NAV_ITEMS: { view: View; label: string; Icon: ComponentType<{ className?: string }> }[] = [
   { view: 'dashboard', label: 'Painel',        Icon: LayoutDashboard },
-  { view: 'history',   label: 'Histórico',     Icon: Clock },
   { view: 'trends',    label: 'Tendências',    Icon: LineChart },
   { view: 'settings',  label: 'Configurações', Icon: Settings },
 ];

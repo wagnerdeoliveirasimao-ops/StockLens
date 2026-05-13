@@ -51,7 +51,7 @@ export interface UserSettings {
   adobe?: { apiKey: string; apiSecret: string };
 }
 
-export type View = 'dashboard' | 'history' | 'trends' | 'settings';
+export type View = 'dashboard' | 'trends' | 'settings';
 
 // ── Compliance ────────────────────────────────────────────────────────────────
 

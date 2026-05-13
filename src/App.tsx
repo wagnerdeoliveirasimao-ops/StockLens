@@ -15,7 +15,6 @@ import { useToast, ToastContainer } from './components/Toast';
 import { AppSidebar } from './components/AppSidebar';
 import { ImageDetailPanel } from './components/ImageDetailPanel';
 import { DashboardView } from './components/views/DashboardView';
-import { HistoryView } from './components/views/HistoryView';
 import { TrendsView } from './components/views/TrendsView';
 import { SettingsView } from './components/views/SettingsView';
 import type { AnalysisResult, View } from './types';
@@ -86,9 +85,6 @@ export default function App() {
                 onRetryBatchItem={retryBatchItem}
                 onClearBatch={clearBatch}
               />
-            )}
-            {activeView === 'history' && (
-              <HistoryView images={images} onSelectImage={setSelectedImage} />
             )}
             {activeView === 'trends' && <TrendsView />}
             {activeView === 'settings' && (
