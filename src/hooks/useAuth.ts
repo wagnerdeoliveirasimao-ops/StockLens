@@ -56,15 +56,13 @@ export function useAuth() {
 
     // Processa redirect pendente (volta do Google OAuth)
     getRedirectResult(auth)
-      .then((result) => {
-        if (result?.user) {
-          setAuthError(`✅ Redirect OK: ${result.user.email}`);
-        } else {
-          setAuthError(`ℹ️ getRedirectResult: null (nenhum redirect pendente)`);
-        }
+      .then((_result) => {
+        // resultado processado pelo onAuthStateChanged
       })
       .catch((err: { code?: string; message?: string }) => {
-        setAuthError(`❌ Erro: ${err.code} — ${err.message}`);
+        if (err.code && err.code !== 'auth/cancelled-popup-request') {
+          setAuthError(`Erro ao autenticar: ${err.code}`);
+        }
       })
       .finally(() => {
         redirectDone = true;
@@ -74,18 +72,17 @@ export function useAuth() {
     // Pageshow: captura restauração de bfcache do iOS
     const handlePageShow = (e: PageTransitionEvent) => {
       if (e.persisted) {
-        setAuthError('🔄 Página restaurada do cache (bfcache) — verificando auth...');
         getRedirectResult(auth)
           .then((result) => {
             if (result?.user) {
               setUser(result.user);
               setAuthError(null);
-            } else {
-              setAuthError('⚠️ bfcache: getRedirectResult retornou null');
             }
           })
           .catch((err: { code?: string }) => {
-            setAuthError(`❌ bfcache erro: ${err.code}`);
+            if (err.code && err.code !== 'auth/cancelled-popup-request') {
+              setAuthError(`Erro ao autenticar: ${err.code}`);
+            }
           });
       }
     };
