@@ -249,6 +249,28 @@ async function startServer() {
   app.use(cors());
   app.use(express.json({ limit: '50mb' }));
 
+  // ── Proxy Firebase Auth handler ───────────────────────────────────────────────
+  // Necessário para iOS Safari: mantém o fluxo OAuth no mesmo domínio do app,
+  // evitando que o ITP do Safari apague o estado de redirect do IndexedDB.
+  const FIREBASE_PROJECT = 'gen-lang-client-0469527602';
+  app.use('/__/', async (req, res) => {
+    try {
+      const qs    = new URLSearchParams(req.query as Record<string, string>).toString();
+      const url   = `https://${FIREBASE_PROJECT}.firebaseapp.com/__${req.path}${qs ? '?' + qs : ''}`;
+      const upstream = await fetch(url, {
+        method:  req.method,
+        headers: { 'user-agent': req.headers['user-agent'] ?? '', accept: req.headers.accept ?? '*/*' },
+      });
+      const ct = upstream.headers.get('content-type') ?? 'text/html';
+      res.setHeader('content-type', ct);
+      res.status(upstream.status);
+      res.send(Buffer.from(await upstream.arrayBuffer()));
+    } catch (err) {
+      console.error('[AuthProxy] erro:', err);
+      res.status(502).send('Auth proxy error');
+    }
+  });
+
   // ── POST /api/distribute ──────────────────────────────────────────────────────
   app.post('/api/distribute', async (req, res) => {
     const { imageId, imageUrl, imageName, platforms, metadata, config } = req.body as {
