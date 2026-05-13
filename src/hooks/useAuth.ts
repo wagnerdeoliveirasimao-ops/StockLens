@@ -6,10 +6,10 @@ import {
   onAuthStateChanged,
   signOut,
   User as FirebaseUser,
-  browserLocalPersistence,
-  setPersistence,
 } from 'firebase/auth';
 import { auth, googleProvider } from '../firebase';
+
+const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
 export function useAuth() {
   const [user, setUser]               = useState<FirebaseUser | null>(null);
@@ -17,32 +17,60 @@ export function useAuth() {
   const [authError, setAuthError]     = useState<string | null>(null);
 
   useEffect(() => {
-    const safetyTimer = setTimeout(() => {
-      console.warn('[Auth] Safety timeout — desbloqueando tela');
-      setAuthLoading(false);
-    }, 8000);
+    // Só finaliza o loading quando AMBOS terminarem:
+    // - getRedirectResult (processa redirect pendente do Google)
+    // - onAuthStateChanged (estado inicial do Firebase)
+    // Isso evita o flash da tela de login enquanto o redirect é processado.
 
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
+    let redirectDone  = false;
+    let authStateDone = false;
+    let resolvedUser: FirebaseUser | null = null;
+    let settled = false;
+
+    const safetyTimer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        setAuthLoading(false);
+      }
+    }, 10000);
+
+    const finalize = () => {
+      if (!redirectDone || !authStateDone || settled) return;
+      settled = true;
       clearTimeout(safetyTimer);
-      setUser(u);
+      setUser(resolvedUser);
       setAuthLoading(false);
+    };
+
+    // Listener principal — atualiza user após o carregamento inicial também
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      resolvedUser = u;
+      if (settled) {
+        // Já inicializado: atualiza diretamente (logout, etc.)
+        setUser(u);
+      } else {
+        authStateDone = true;
+        finalize();
+      }
     });
 
-    // Captura resultado de redirect pendente (fallback para quando popup falhou)
+    // Processa redirect pendente (volta do Google OAuth)
     getRedirectResult(auth)
       .then((result) => {
         if (result?.user) console.log('[Auth] Redirect OK:', result.user.email);
       })
       .catch((err: { code?: string; message?: string }) => {
         console.error('[Auth] Redirect error:', err.code, err.message);
-        clearTimeout(safetyTimer);
         if (err.code === 'auth/unauthorized-domain') {
           setAuthError(
             `Domínio não autorizado: adicione "${window.location.hostname}" em ` +
             `Authentication → Settings → Authorized domains no Firebase Console.`
           );
         }
-        setAuthLoading(false);
+      })
+      .finally(() => {
+        redirectDone = true;
+        finalize();
       });
 
     return () => {
@@ -51,41 +79,36 @@ export function useAuth() {
     };
   }, []);
 
-  const login = async () => {
+  const login = () => {
+    // Nota: sem await nem async aqui.
+    // Qualquer operação assíncrona antes de signInWithPopup
+    // quebra a cadeia de gesto do usuário no Safari e o popup é bloqueado.
     setAuthError(null);
-    try {
-      // Força persistência local (ajuda o Safari manter sessão entre redirects)
-      await setPersistence(auth, browserLocalPersistence);
-      // Popup funciona no iOS Safari quando o domínio está autorizado
-      // e é chamado diretamente de um gesto do usuário
-      await signInWithPopup(auth, googleProvider);
-    } catch (err: unknown) {
-      const code = (err as { code?: string }).code;
 
-      if (code === 'auth/popup-blocked' || code === 'auth/popup-closed-by-user') {
-        // Safari bloqueou o popup — cai para redirect
-        console.log('[Auth] Popup bloqueado, tentando redirect...');
-        try {
-          await signInWithRedirect(auth, googleProvider);
-        } catch (redirectErr: unknown) {
-          const rCode = (redirectErr as { code?: string }).code;
-          if (rCode === 'auth/unauthorized-domain') {
-            setAuthError(
-              `Domínio não autorizado: adicione "${window.location.hostname}" em ` +
-              `Authentication → Settings → Authorized domains no Firebase Console.`
-            );
-          } else {
-            console.error('[Auth] Redirect error:', redirectErr);
-          }
+    if (isMobile) {
+      // iOS (Safari e Chrome) — redirect é mais confiável que popup
+      signInWithRedirect(auth, googleProvider).catch((err: { code?: string }) => {
+        if (err.code === 'auth/unauthorized-domain') {
+          setAuthError(
+            `Domínio não autorizado: adicione "${window.location.hostname}" em ` +
+            `Authentication → Settings → Authorized domains no Firebase Console.`
+          );
         }
-      } else if (code === 'auth/unauthorized-domain') {
-        setAuthError(
-          `Domínio não autorizado: adicione "${window.location.hostname}" em ` +
-          `Authentication → Settings → Authorized domains no Firebase Console.`
-        );
-      } else if (code !== 'auth/cancelled-popup-request') {
-        console.error('[Auth] Login error:', err);
-      }
+      });
+    } else {
+      // Desktop — popup abre na mesma sessão, mais fluido
+      signInWithPopup(auth, googleProvider).catch((err: { code?: string }) => {
+        if (err.code === 'auth/popup-blocked') {
+          signInWithRedirect(auth, googleProvider);
+        } else if (err.code === 'auth/unauthorized-domain') {
+          setAuthError(
+            `Domínio não autorizado: adicione "${window.location.hostname}" em ` +
+            `Authentication → Settings → Authorized domains no Firebase Console.`
+          );
+        } else if (err.code !== 'auth/cancelled-popup-request' && err.code !== 'auth/popup-closed-by-user') {
+          console.error('[Auth] Login error:', err);
+        }
+      });
     }
   };
 
