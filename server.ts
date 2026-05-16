@@ -2,11 +2,12 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import cors from "cors";
+import SftpClient from 'ssh2-sftp-client';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 interface ShutterstockConfig { apiKey: string; apiSecret: string; contributorId: string; }
-interface GettyConfig        { apiKey: string; apiSecret: string; }
+interface GettyConfig        { sftpUser: string; sftpPassword: string; }
 interface AdobeConfig        { apiKey: string; apiSecret: string; }
 
 interface DistributionMetadata { title: string; keywords: string[]; description?: string; }
@@ -221,23 +222,97 @@ async function distributeToAdobe(
   };
 }
 
-// ── Getty Images ───────────────────────────────────────────────────────────────
+// ── Getty Images / iStock (SFTP) ───────────────────────────────────────────────
 //
-// Getty Images does NOT offer a public contributor upload API.
-// Submissions are done via web portal or SFTP.
-// The Getty API (api.gettyimages.com) is for content licensing only (buyers).
+// Getty Images does not offer a public contributor upload API.
+// Submissions use SFTP: sftp.gettyimages.com (port 22).
+// iStock is a Getty subsidiary and shares the same SFTP pipeline.
+//
+// Flow:
+//   1. Connect to sftp.gettyimages.com with contributor credentials
+//   2. Upload image file to /uploads/
+//   3. Upload companion XML with title, keywords, destination (Getty or iStock)
+//   4. Getty processes both files automatically
 
-async function distributeToGetty(_config: Partial<GettyConfig>): Promise<PlatformResult> {
-  console.log('[Getty Images] Redirecionando para portal — sem API pública de upload de contribuidor.');
-  return {
-    platform:  'Getty Images',
-    status:    'error',
-    timestamp: new Date().toISOString(),
-    portalUrl: 'https://contributor.gettyimages.com',
-    message:
-      'Getty Images não oferece API pública para upload de contribuições. ' +
-      'Envie pelo portal web (contributor.gettyimages.com) ou via SFTP (sftp.gettyimages.com).',
-  };
+function buildGettyXml(
+  filename: string,
+  metadata: DistributionMetadata,
+  destination: 'Getty' | 'iStock'
+): string {
+  const keywords = metadata.keywords.slice(0, 50).join(',');
+  const title    = metadata.title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').slice(0, 200);
+  const desc     = (metadata.description ?? metadata.title).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').slice(0, 500);
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Assets>
+  <Asset>
+    <Filename>${filename}</Filename>
+    <Title>${title}</Title>
+    <Description>${desc}</Description>
+    <Keywords>${keywords}</Keywords>
+    <Destination>${destination}</Destination>
+    <Exclusive>false</Exclusive>
+    <Editorial>false</Editorial>
+  </Asset>
+</Assets>`;
+}
+
+async function distributeViaGettySFTP(
+  imageBuffer: Buffer,
+  imageName:   string,
+  metadata:    DistributionMetadata,
+  config:      GettyConfig,
+  destination: 'Getty' | 'iStock',
+): Promise<PlatformResult> {
+  const PORTAL = 'https://contributor.gettyimages.com';
+  const ts     = new Date().toISOString();
+  const platform = destination === 'iStock' ? 'iStock' : 'Getty Images';
+  const log    = (msg: string) => console.log(`[${platform}] ${msg}`);
+
+  const sftp = new SftpClient();
+  try {
+    log(`Conectando a sftp.gettyimages.com como ${config.sftpUser}...`);
+    await sftp.connect({
+      host:     'sftp.gettyimages.com',
+      port:     22,
+      username: config.sftpUser,
+      password: config.sftpPassword,
+      readyTimeout: 20000,
+    });
+
+    const remotePath = `/uploads/${imageName}`;
+    const xmlName    = imageName.replace(/\.[^/.]+$/, '') + '.xml';
+    const xmlPath    = `/uploads/${xmlName}`;
+    const xmlContent = buildGettyXml(imageName, metadata, destination);
+
+    log(`Enviando imagem → ${remotePath}`);
+    await sftp.put(imageBuffer, remotePath);
+
+    log(`Enviando metadados → ${xmlPath}`);
+    await sftp.put(Buffer.from(xmlContent, 'utf-8'), xmlPath);
+
+    log('Upload concluído com sucesso.');
+    return {
+      platform,
+      status:    'success',
+      timestamp: ts,
+      portalUrl: PORTAL,
+      message:   `Arquivo enviado via SFTP. O ${platform} processará a submissão em breve — acompanhe em contributor.gettyimages.com.`,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log(`Erro SFTP: ${msg}`);
+
+    const friendly = msg.includes('Authentication') || msg.includes('authentication')
+      ? 'Credenciais SFTP inválidas. Verifique usuário e senha nas Configurações.'
+      : msg.includes('ECONNREFUSED') || msg.includes('ENOTFOUND')
+        ? 'Não foi possível conectar ao servidor SFTP. Verifique sua conexão.'
+        : `Erro no upload SFTP: ${msg}`;
+
+    return { platform, status: 'error', timestamp: ts, portalUrl: PORTAL, message: friendly };
+  } finally {
+    await sftp.end().catch(() => {});
+  }
 }
 
 // ── Server ─────────────────────────────────────────────────────────────────────
@@ -320,7 +395,12 @@ async function startServer() {
           results.push(await distributeToShutterstock(imageBuffer, safeImageName, contentType, metadata, config.shutterstock));
 
         } else if (platform === 'Getty Images') {
-          results.push(await distributeToGetty(config.getty ?? {}));
+          if (!config.getty?.sftpUser) throw new Error('Credenciais SFTP do Getty ausentes.');
+          results.push(await distributeViaGettySFTP(imageBuffer, safeImageName, metadata, config.getty, 'Getty'));
+
+        } else if (platform === 'iStock') {
+          if (!config.getty?.sftpUser) throw new Error('Credenciais SFTP do Getty/iStock ausentes.');
+          results.push(await distributeViaGettySFTP(imageBuffer, safeImageName, metadata, config.getty, 'iStock'));
 
         } else if (platform === 'Adobe Stock') {
           if (!config.adobe?.apiKey) throw new Error('Configuração do Adobe Stock ausente.');

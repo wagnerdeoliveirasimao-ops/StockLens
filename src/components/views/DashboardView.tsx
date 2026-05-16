@@ -186,6 +186,7 @@ const PLATFORMS: { key: keyof ImageCompliance; label: string }[] = [
   { key: 'shutterstock', label: 'SS' },
   { key: 'getty',        label: 'GI' },
   { key: 'adobe',        label: 'AS' },
+  { key: 'istock',       label: 'IS' },
 ];
 
 function PlatformBadges({ compliance }: { compliance?: ImageCompliance }) {
@@ -195,6 +196,7 @@ function PlatformBadges({ compliance }: { compliance?: ImageCompliance }) {
     <div className="flex items-center gap-1.5">
       {PLATFORMS.map(({ key, label }) => {
         const platform = compliance[key];
+        if (!platform) return null;
         return (
           <span
             key={key}

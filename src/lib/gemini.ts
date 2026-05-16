@@ -6,7 +6,7 @@ export const GEMINI_MODEL = 'gemini-2.5-flash';
 
 export const ANALYSIS_PROMPT = `Analise esta imagem para dois fins:
 
-1. POTENCIAL COMERCIAL em plataformas de stock (Shutterstock, Getty Images, Adobe Stock).
+1. POTENCIAL COMERCIAL em plataformas de stock (Shutterstock, Getty Images, Adobe Stock, iStock).
 2. CONFORMIDADE TÉCNICA com os padrões mínimos de cada plataforma.
 
 Para a conformidade, avalie os seguintes critérios visuais (a resolução será verificada separadamente):
@@ -26,6 +26,7 @@ PADRÕES POR PLATAFORMA:
 - Shutterstock: aceita ruído leve (warning), exposição com warning. Reprovado por watermarks, copyright, brandLogos como foco.
 - Getty Images (mais exigente): exige pass em sharpness, exposure, noise e technicalDefects. Warnings em qualidade técnica resultam em reprovação.
 - Adobe Stock: padrões similares ao Shutterstock.
+- iStock (curadoria humana seletiva, microstock do Getty): padrões intermediários — aceita warnings em qualidade técnica (não reprova automaticamente), mas é mais seletivo que Shutterstock. Reprovado por watermarks, copyright e brandLogos como foco.
 
 Retorne um JSON com:
 - score: número (1-100) representando o potencial comercial geral.
@@ -34,7 +35,7 @@ Retorne um JSON com:
 - commercialPotential: string explicando o potencial comercial.
 - suggestions: string[] com recomendações práticas de melhoria.
 - editingGuide: objeto com exposure, contrast, saturation, highlights, shadows, colorTemp, cropSuggestion.
-- compliance: objeto com shutterstock, getty, adobe — cada um com array "checks" contendo objetos {checkId, status, label, message}.
+- compliance: objeto com shutterstock, getty, adobe, istock — cada um com array "checks" contendo objetos {checkId, status, label, message}.
 
 IMPORTANTE: Todas as descrições em texto devem estar em PORTUGUÊS (Brasil).`;
 
@@ -84,8 +85,9 @@ export const analysisResponseSchema = {
         shutterstock: PLATFORM_COMPLIANCE_SCHEMA,
         getty:        PLATFORM_COMPLIANCE_SCHEMA,
         adobe:        PLATFORM_COMPLIANCE_SCHEMA,
+        istock:       PLATFORM_COMPLIANCE_SCHEMA,
       },
-      required: ['shutterstock', 'getty', 'adobe'],
+      required: ['shutterstock', 'getty', 'adobe', 'istock'],
     },
   },
   required: ['score', 'keywords', 'trends', 'commercialPotential', 'suggestions', 'editingGuide', 'compliance'],
@@ -96,4 +98,5 @@ export const PLATFORM_RESOLUTION_REQUIREMENTS = {
   shutterstock: { minMP: 4,  label: '4 MP mínimo (aprox. 2400×1600px)' },
   getty:        { minMP: 6,  label: '6 MP mínimo (aprox. 3000×2000px)' },
   adobe:        { minMP: 4,  label: '4 MP mínimo (aprox. 2400×1600px)' },
+  istock:       { minMP: 3,  label: '3 MP mínimo (aprox. 2000×1500px)' },
 } as const;

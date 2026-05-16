@@ -10,6 +10,7 @@ const PLATFORM_LABELS: Record<keyof ImageCompliance, { name: string; color: stri
   shutterstock: { name: 'Shutterstock', color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200' },
   getty:        { name: 'Getty Images', color: 'text-blue-600',   bg: 'bg-blue-50',   border: 'border-blue-200'   },
   adobe:        { name: 'Adobe Stock',  color: 'text-red-600',    bg: 'bg-red-50',    border: 'border-red-200'    },
+  istock:       { name: 'iStock',       color: 'text-violet-600', bg: 'bg-violet-50', border: 'border-violet-200' },
 };
 
 function StatusIcon({ status }: { status: ComplianceCheck['status'] }) {
@@ -78,8 +79,8 @@ function PlatformCard({ platform, data }: { platform: keyof ImageCompliance; dat
 }
 
 export function CompliancePanel({ compliance }: Props) {
-  const platforms: (keyof ImageCompliance)[] = ['shutterstock', 'getty', 'adobe'];
-  const eligible  = platforms.filter(p => compliance[p].eligible).length;
+  const platforms: (keyof ImageCompliance)[] = ['shutterstock', 'getty', 'adobe', 'istock'];
+  const eligible  = platforms.filter(p => compliance[p]?.eligible).length;
 
   return (
     <section className="space-y-4">
@@ -92,11 +93,11 @@ export function CompliancePanel({ compliance }: Props) {
       </div>
 
       <div className="space-y-3">
-        {platforms.map(platform => (
+        {platforms.map(platform => compliance[platform] ? (
           <Fragment key={platform}>
             <PlatformCard platform={platform} data={compliance[platform]} />
           </Fragment>
-        ))}
+        ) : null)}
       </div>
     </section>
   );

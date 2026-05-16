@@ -1,7 +1,7 @@
 import { ImageCompliance, PlatformCompliance, ComplianceCheck, ImageMetadata } from '../types';
 import { PLATFORM_RESOLUTION_REQUIREMENTS } from './gemini';
 
-type PlatformKey = 'shutterstock' | 'getty' | 'adobe';
+type PlatformKey = 'shutterstock' | 'getty' | 'adobe' | 'istock';
 
 interface RawPlatformChecks {
   checks: Array<{ checkId: string; status: string; label: string; message: string }>;
@@ -11,6 +11,7 @@ interface RawCompliance {
   shutterstock: RawPlatformChecks;
   getty: RawPlatformChecks;
   adobe: RawPlatformChecks;
+  istock: RawPlatformChecks;
 }
 
 // Getty reprova com warnings em qualidade técnica
@@ -87,5 +88,6 @@ export function buildCompliance(
     shutterstock: buildPlatformCompliance('shutterstock', rawCompliance.shutterstock, metadata),
     getty:        buildPlatformCompliance('getty',        rawCompliance.getty,        metadata),
     adobe:        buildPlatformCompliance('adobe',        rawCompliance.adobe,        metadata),
+    istock:       buildPlatformCompliance('istock',       rawCompliance.istock,       metadata),
   };
 }

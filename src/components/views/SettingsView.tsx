@@ -16,7 +16,7 @@ export function SettingsView({ settings, isSavingSettings, onSave }: Props) {
     onSave({
       ...settings,
       shutterstock: { apiKey: f.get('ss_key') as string, apiSecret: f.get('ss_secret') as string, contributorId: f.get('ss_cid') as string },
-      getty: { apiKey: f.get('gt_key') as string, apiSecret: f.get('gt_secret') as string },
+      getty: { sftpUser: f.get('gt_user') as string, sftpPassword: f.get('gt_pass') as string },
       adobe: { apiKey: f.get('ad_key') as string, apiSecret: f.get('ad_secret') as string },
     });
   };
@@ -66,18 +66,18 @@ export function SettingsView({ settings, isSavingSettings, onSave }: Props) {
                   ]}
                   accentClass="bg-slate-100 text-slate-400"
                 />
-                {/* Getty */}
+                {/* Getty + iStock */}
                 <PlatformCard
-                  letter="G" name="Getty Images" subtitle="Upload via portal web / SFTP"
+                  letter="G" name="Getty Images + iStock" subtitle="Upload via SFTP (sftp.gettyimages.com)"
                   docsUrl="https://contributor.gettyimages.com"
-                  docsLabel="contributor.gettyimages.com (sem API pública)"
-                  isActive={false}
-                  disabled
+                  docsLabel="Getty Contributor Hub — obter credenciais SFTP"
+                  isActive={!!settings.getty?.sftpUser}
                   fields={[
-                    { name: 'gt_key',    label: 'API Key (não utilizado)',    type: 'text',     defaultValue: settings.getty?.apiKey || '',    placeholder: 'N/A — Getty não tem API de upload' },
-                    { name: 'gt_secret', label: 'API Secret (não utilizado)', type: 'password', defaultValue: settings.getty?.apiSecret || '', placeholder: 'N/A — use o portal ou SFTP' },
+                    { name: 'gt_user', label: 'Usuário SFTP',   type: 'text',     defaultValue: settings.getty?.sftpUser || '',     placeholder: 'Seu usuário Getty Contributor' },
+                    { name: 'gt_pass', label: 'Senha SFTP',     type: 'password', defaultValue: settings.getty?.sftpPassword || '', placeholder: 'Senha do Getty Contributor Hub' },
                   ]}
                   accentClass="bg-emerald-50 text-emerald-600"
+                  note="As mesmas credenciais dão acesso a Getty Images e iStock. Obtenha-as no Getty Contributor Hub."
                 />
                 {/* Adobe */}
                 <PlatformCard
@@ -126,10 +126,10 @@ interface PlatformCardProps {
   isActive: boolean; fields: Field[];
   accentClass: string; activeClass?: string;
   docsUrl?: string; docsLabel?: string;
-  disabled?: boolean;
+  disabled?: boolean; note?: string;
 }
 
-function PlatformCard({ letter, name, subtitle, isActive, fields, accentClass, activeClass, docsUrl, docsLabel, disabled }: PlatformCardProps) {
+function PlatformCard({ letter, name, subtitle, isActive, fields, accentClass, activeClass, docsUrl, docsLabel, disabled, note }: PlatformCardProps) {
   const activeStyle = activeClass ?? 'bg-emerald-50 text-emerald-600';
   return (
     <div className={`bg-white p-6 rounded-2xl border border-slate-200 flex flex-col gap-4 ${disabled ? 'opacity-60' : ''}`}>
@@ -163,6 +163,9 @@ function PlatformCard({ letter, name, subtitle, isActive, fields, accentClass, a
           </div>
         ))}
       </div>
+      {note && (
+        <p className="text-[10px] text-slate-400 italic leading-relaxed pt-1 border-t border-slate-50">{note}</p>
+      )}
     </div>
   );
 }

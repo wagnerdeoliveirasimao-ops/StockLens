@@ -47,7 +47,7 @@ export interface AnalysisResult {
 
 export interface UserSettings {
   shutterstock?: { apiKey: string; apiSecret: string; contributorId: string };
-  getty?: { apiKey: string; apiSecret: string };
+  getty?: { sftpUser: string; sftpPassword: string };
   adobe?: { apiKey: string; apiSecret: string };
 }
 
@@ -73,6 +73,7 @@ export interface ImageCompliance {
   shutterstock: PlatformCompliance;
   getty: PlatformCompliance;
   adobe: PlatformCompliance;
+  istock: PlatformCompliance;
 }
 
 export interface ImageMetadata {

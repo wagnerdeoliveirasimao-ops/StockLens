@@ -138,11 +138,12 @@ export function ImageDetailPanel({ image, onClose, isImproving, isDistributing, 
                       GERAR VERSÃO APRIMORADA VIA IA
                     </button>
                   )}
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 gap-3">
                     {[
                       { label: 'SHUTTERSTOCK', platform: 'Shutterstock', Icon: Upload, style: 'bg-slate-900 text-white hover:bg-black' },
-                      { label: 'GETTY IMAGES', platform: 'Getty Images',  Icon: Send,   style: 'bg-white border-2 border-slate-900 text-slate-900 hover:bg-slate-50' },
-                      { label: 'ADOBE STOCK',  platform: 'Adobe Stock',   Icon: Search, style: 'bg-white border-2 border-blue-600 text-blue-600 hover:bg-blue-50' },
+                      { label: 'ADOBE STOCK',  platform: 'Adobe Stock',  Icon: Search, style: 'bg-white border-2 border-blue-600 text-blue-600 hover:bg-blue-50' },
+                      { label: 'GETTY IMAGES', platform: 'Getty Images', Icon: Send,   style: 'bg-white border-2 border-slate-700 text-slate-700 hover:bg-slate-50' },
+                      { label: 'ISTOCK',       platform: 'iStock',       Icon: Send,   style: 'bg-white border-2 border-violet-600 text-violet-600 hover:bg-violet-50' },
                     ].map(({ label, platform, Icon, style }) => (
                       <button
                         key={platform}
